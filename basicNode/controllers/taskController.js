@@ -1,8 +1,9 @@
+const mongoose = require('mongoose');
 const TaskModel = require('../models/taskModel');
 
 class TaskController {
   // GET /api/tasks
-  static getAllTasks(req, res) {
+  static async getAllTasks(req, res) {
     try {
       const { priority, completed, sortBy, sortOrder, page, limit } = req.query;
 
@@ -62,7 +63,6 @@ class TaskController {
         sort.sortOrder = sortOrder;
         appliedSort.sortOrder = sortOrder;
       } else if (sortBy !== undefined) {
-        // If sortBy is provided but no sortOrder, it defaults to asc
         appliedSort.sortOrder = 'asc';
       }
 
@@ -92,7 +92,8 @@ class TaskController {
         limitNum = parsedLimit;
       }
 
-      const { tasks, totalCount } = TaskModel.getAll(filters, sort, { page: pageNum, limit: limitNum });
+      // Pass user ID (req.user.id) to scope the tasks to the logged-in user
+      const { tasks, totalCount } = await TaskModel.getAll(req.user.id, filters, sort, { page: pageNum, limit: limitNum });
 
       const totalPages = totalCount > 0 ? Math.ceil(totalCount / limitNum) : 0;
       const hasNextPage = pageNum < totalPages;
@@ -125,13 +126,24 @@ class TaskController {
   }
 
   // GET /api/tasks/:id
-  static getTaskById(req, res) {
+  static async getTaskById(req, res) {
     try {
-      const task = TaskModel.getById(req.params.id);
+      const taskId = req.params.id;
+      
+      // Validate MongoDB ObjectId format
+      if (!mongoose.Types.ObjectId.isValid(taskId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid task ID format'
+        });
+      }
+
+      // Query task using task ID and scope to current logged-in user ID
+      const task = await TaskModel.getById(taskId, req.user.id);
       if (!task) {
         return res.status(404).json({
           success: false,
-          message: `Task with id ${req.params.id} not found`
+          message: `Task with id ${taskId} not found`
         });
       }
       return res.status(200).json({
@@ -147,7 +159,7 @@ class TaskController {
   }
 
   // POST /api/tasks
-  static createTask(req, res) {
+  static async createTask(req, res) {
     try {
       const { title, description, completed, priority, dueDate } = req.body;
 
@@ -192,7 +204,8 @@ class TaskController {
         ? new Date(dueDate).toISOString() 
         : null;
 
-      const newTask = TaskModel.create(title, description, priority, finalDueDate, completed);
+      // Create task associated with current logged-in user ID
+      const newTask = await TaskModel.create(req.user.id, title, description, priority, finalDueDate, completed);
       return res.status(201).json({
         success: true,
         data: newTask
@@ -206,13 +219,21 @@ class TaskController {
   }
 
   // PUT /api/tasks/:id
-  static updateTask(req, res) {
+  static async updateTask(req, res) {
     try {
       const { title, description, completed, priority, dueDate, createdAt } = req.body;
       const taskId = req.params.id;
 
-      // Find if task exists
-      const existingTask = TaskModel.getById(taskId);
+      // Validate MongoDB ObjectId format
+      if (!mongoose.Types.ObjectId.isValid(taskId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid task ID format'
+        });
+      }
+
+      // Find if task exists and belongs to current user
+      const existingTask = await TaskModel.getById(taskId, req.user.id);
       if (!existingTask) {
         return res.status(404).json({
           success: false,
@@ -269,9 +290,8 @@ class TaskController {
         updates.dueDate = (dueDate === null || dueDate === '') ? null : new Date(dueDate).toISOString();
       }
 
-      // Pass along the updates. Include the attempted 'createdAt' from req.body 
-      // so the model can explicitly filter/ignore it, demonstrating protection.
-      const updatedTask = TaskModel.update(taskId, { ...updates, createdAt });
+      // Pass user ID to ensure database mutation stays scoped to task owner
+      const updatedTask = await TaskModel.update(taskId, req.user.id, { ...updates, createdAt });
       return res.status(200).json({
         success: true,
         data: updatedTask
@@ -285,11 +305,20 @@ class TaskController {
   }
 
   // DELETE /api/tasks/:id
-  static deleteTask(req, res) {
+  static async deleteTask(req, res) {
     try {
       const taskId = req.params.id;
-      const isDeleted = TaskModel.delete(taskId);
 
+      // Validate MongoDB ObjectId format
+      if (!mongoose.Types.ObjectId.isValid(taskId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid task ID format'
+        });
+      }
+
+      // Delete task verifying that user owns it
+      const isDeleted = await TaskModel.delete(taskId, req.user.id);
       if (!isDeleted) {
         return res.status(404).json({
           success: false,

@@ -1,7 +1,7 @@
 import axios from 'axios';
 
 const api = axios.create({
-  baseURL: 'http://localhost:3000/api',
+  baseURL: 'https://task-manager-qujs.onrender.com/api',
   headers: {
     'Content-Type': 'application/json'
   }
@@ -29,7 +29,7 @@ api.interceptors.response.use(
       // Clear authentication context cache
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      
+
       // Force page redirect to Login if we are not already on auth pages
       const currentPath = window.location.pathname;
       if (currentPath !== '/login' && currentPath !== '/register') {
